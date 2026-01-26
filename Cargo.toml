@@ -1,0 +1,16 @@
+[package]
+name = "fractyl-renderer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.149", features = ["derive"] }
+resvg = "0.46.0"
+serde_json = "1.0.149"
+log = "0.4.29"
+colog = "1.4.0"
+image = "0.25.9"
+imageproc = "0.26.0"
+reqwest = "0.13.1"
+tokio = { version="1.49.0", features = ["full"] }
+base64 = "0.22.1"
