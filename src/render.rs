@@ -1,10 +1,13 @@
 use std::{collections::HashMap, string::FromUtf8Error};
 
-use image::{ImageBuffer, ImageError, ImageFormat, ImageReader, Rgba, imageops::{self, overlay}};
+use image::{
+    ImageBuffer, ImageError, ImageFormat, ImageReader, Rgba,
+    imageops::{self, overlay},
+};
 use log::warn;
 use resvg::{
     tiny_skia::Pixmap,
-    usvg::{self, Transform},
+    usvg::{self, Options, Transform},
 };
 use serde::Deserialize;
 
@@ -44,10 +47,11 @@ impl UsedPlaceholders {
 }
 
 #[derive(Debug)]
-pub struct Renderer {
+pub struct Renderer<'a> {
     schema: Schema,
     used_placeholders: UsedPlaceholders,
     values: PlaceholderValues,
+    usvg_options: Options<'a>,
 }
 
 #[derive(Debug)]
@@ -64,12 +68,16 @@ pub enum RenderingError {
 
 pub type ImgBuf = ImageBuffer<Rgba<u8>, Vec<u8>>;
 
-impl Renderer {
+impl<'a> Renderer<'a> {
     pub fn build(schema: Schema, values: PlaceholderValues) -> Self {
+        let mut options = usvg::Options::default();
+        options.fontdb_mut().load_system_fonts();
+
         Renderer {
             schema,
             used_placeholders: UsedPlaceholders::new(),
             values,
+            usvg_options: options,
         }
     }
 
@@ -81,22 +89,34 @@ impl Renderer {
         (self.schema.content_box.raster_y + y).into()
     }
 
-    fn svg_to_png(svg_code: &str) -> Result<ImgBuf, RenderingError> {
-        let mut options = usvg::Options::default();
-        options.fontdb_mut().load_system_fonts();
+    fn create_composite_pixmap(&self) -> Result<Pixmap, RenderingError> {
+        let raster_size = &self.schema.raster_size;
 
-        let tree = usvg::Tree::from_str(svg_code, &options)
-            .map_err(|e| RenderingError::SVGParseError(e))?;
-        let size = tree.size().to_int_size();
-        let mut pixmap = Pixmap::new(size.width(), size.height())
+        let pixmap = Pixmap::new(raster_size.width, raster_size.height)
             .ok_or(RenderingError::PixmapAllocationError)?;
+
+        Ok(pixmap)
+    }
+
+    fn render_svg(
+        &self,
+        svg_code: &str,
+        x: f32,
+        y: f32,
+        mut pixmap: Pixmap,
+    ) -> Result<Pixmap, RenderingError> {
+        // TODO: use cache
+        let tree = usvg::Tree::from_str(svg_code, &self.usvg_options)
+            .map_err(|e| RenderingError::SVGParseError(e))?;
 
         let mut pixmap_mut = pixmap.as_mut();
 
-        resvg::render(&tree, Transform::default(), &mut pixmap_mut);
+        resvg::render(&tree, Transform::from_translate(x, y), &mut pixmap_mut);
 
-        // Ok(pixmap_mut.to_owned())
+        Ok(pixmap)
+    }
 
+    fn pixmap_to_png(pixmap: Pixmap) -> Result<ImgBuf, RenderingError> {
         let encoded_png = pixmap
             .to_owned()
             .encode_png()
@@ -145,9 +165,8 @@ impl Renderer {
     fn render_fragments<T: Fragment>(
         &mut self,
         fragments: &Vec<T>,
-    ) -> Result<Vec<(XY, ImgBuf)>, RenderingError> {
-        let mut imgs = vec![];
-
+        mut fragments_pixmap: Pixmap,
+    ) -> Result<Pixmap, RenderingError> {
         for fragment in fragments {
             let (placeholder_values, used_placeholders) = match fragment.fragment_type() {
                 SchemaFragmentType::Text => (&self.values.text, &mut self.used_placeholders.text),
@@ -176,36 +195,48 @@ impl Renderer {
                 unused_placeholders,
             );
 
-            let img = Renderer::svg_to_png(&svg_code)?;
-            imgs.push((XY::from_tuple(fragment.position().as_tuple()), img))
+            let position = fragment.position();
+
+            fragments_pixmap = self.render_svg(
+                &svg_code,
+                self.get_x(position.x) as f32,
+                self.get_y(position.y) as f32,
+                fragments_pixmap,
+            )?;
         }
 
-        Ok(imgs)
+        Ok(fragments_pixmap)
     }
 
     fn render_to_background(&mut self, background_img: &mut ImgBuf) -> Result<(), RenderingError> {
-        let mut img_bufs = self.render_fragments(&self.schema.fragments.text.clone())?;
-        img_bufs.extend(self.render_fragments(&self.schema.fragments.shapes.clone())?);
-        img_bufs.extend(self.render_fragments(&self.schema.fragments.images.clone())?);
+        let mut fragments_pixmap = self.create_composite_pixmap()?;
+        fragments_pixmap =
+            self.render_fragments(&self.schema.fragments.text.clone(), fragments_pixmap)?;
+        fragments_pixmap =
+            self.render_fragments(&self.schema.fragments.images.clone(), fragments_pixmap)?;
+        fragments_pixmap =
+            self.render_fragments(&self.schema.fragments.shapes.clone(), fragments_pixmap)?;
 
-        for (xy, img) in img_bufs {
-            overlay(background_img, &img, self.get_x(xy.0), self.get_y(xy.1));
-        }
+        let fragments_img = Renderer::pixmap_to_png(fragments_pixmap)?;
+
+        overlay(background_img, &fragments_img, 0, 0);
 
         Ok(())
     }
 
-
-
     fn apply_binary_mask(base: &mut ImgBuf, mask: &ImgBuf) {
         for (out_pixel, mask_pixel) in base.pixels_mut().zip(mask.pixels()) {
-            if mask_pixel[0] == 0 { // Black in mask
+            if mask_pixel[0] == 0 {
+                // Black in mask
                 *out_pixel = Rgba([0, 0, 0, 0]);
             }
         }
     }
 
-    pub fn create_translucent_base(&mut self, mut background_img: ImgBuf) -> Result<ImgBuf, RenderingError> {
+    pub fn create_translucent_base(
+        &mut self,
+        mut background_img: ImgBuf,
+    ) -> Result<ImgBuf, RenderingError> {
         let translucent_base = image::open(
             &self
                 .schema
@@ -225,7 +256,9 @@ impl Renderer {
         .to_rgba8();
 
         let (width, height) = mask.dimensions();
-        background_img = imageops::crop(&mut background_img, 0, 0, width, height).to_image();
+        if background_img.width() > width || background_img.height() > height {
+            background_img = imageops::crop(&mut background_img, 0, 0, width, height).to_image();
+        }
 
         Renderer::apply_binary_mask(&mut background_img, &mask);
 
