@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::SchemaError;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaV1ContentBox {
     pub width: u32,
@@ -15,13 +15,13 @@ pub struct SchemaV1ContentBox {
     pub raster_y: u32,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct SchemaV1RasterSize {
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct SchemaV1StaticBase {
     pub opaque: String,
     pub translucent: String,
@@ -116,7 +116,7 @@ pub struct SchemaV1Fragments {
     pub shapes: Vec<SchemaV1ShapeFragment>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaV1 {
     pub schema_file: String,

@@ -6,10 +6,11 @@ use resvg::{
     tiny_skia::Pixmap,
     usvg::{self, Transform},
 };
+use serde::Deserialize;
 
 use crate::schema::{Fragment, Schema, SchemaFragmentType};
 
-type PlaceholderMap = HashMap<&'static str, String>;
+pub type PlaceholderMap = HashMap<String, String>;
 
 pub struct XY(u32, u32);
 impl XY {
@@ -18,7 +19,7 @@ impl XY {
     }
 }
 
-#[derive(Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct PlaceholderValues {
     pub text: PlaceholderMap,
     pub images: PlaceholderMap,
