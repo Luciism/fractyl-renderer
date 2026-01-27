@@ -1,4 +1,4 @@
-use std::{io::Cursor, time};
+use std::{io::Cursor, sync::Mutex, time};
 
 use axum::{
     Router,
@@ -10,6 +10,7 @@ use axum::{
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
 use image::ImageFormat;
 use log::info;
+use resvg::usvg;
 use tokio::net::TcpListener;
 
 use crate::{
@@ -19,6 +20,10 @@ use crate::{
 
 pub struct AxumRenderingServer {
     app_router: Router,
+}
+
+lazy_static::lazy_static! {
+    pub static ref USVG_OPTIONS: Mutex<usvg::Options<'static>> = Mutex::new(usvg::Options::default());
 }
 
 #[derive(Debug, TryFromMultipart)]
@@ -31,6 +36,9 @@ struct CreateRenderData {
 
 impl AxumRenderingServer {
     pub fn new() -> Self {
+        let mut options = USVG_OPTIONS.lock().unwrap();
+        options.fontdb_mut().load_fonts_dir("./fonts/");
+
         AxumRenderingServer {
             app_router: Router::new(),
         }
@@ -53,7 +61,11 @@ impl AxumRenderingServer {
                         serde_json::from_str(&form.placeholder_values.contents)
                             .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-                    let mut renderer = Renderer::build(schema, placeholder_values);
+                    let options = USVG_OPTIONS.lock().map_err(|e| {
+                        log::error!("Failed to acquire options: {e}");
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
+                    let mut renderer = Renderer::build(schema, placeholder_values, &options);
 
                     let start_time = time::Instant::now();
                     let output = match form.background_image {

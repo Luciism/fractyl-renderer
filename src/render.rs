@@ -60,14 +60,11 @@ pub struct Renderer<'a> {
     schema: Schema,
     used_placeholders: UsedPlaceholders,
     values: PlaceholderValues,
-    usvg_options: Options<'a>,
+    usvg_options: &'a Options<'a>,
 }
 
 impl<'a> Renderer<'a> {
-    pub fn build(schema: Schema, values: PlaceholderValues) -> Self {
-        let mut options = usvg::Options::default();
-        options.fontdb_mut().load_system_fonts();
-
+    pub fn build(schema: Schema, values: PlaceholderValues, options: &'a usvg::Options<'a>) -> Self {
         Renderer {
             schema,
             used_placeholders: UsedPlaceholders::new(),
