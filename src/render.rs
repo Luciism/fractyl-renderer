@@ -1,12 +1,14 @@
+mod cache;
+
 use std::{collections::HashMap, string::FromUtf8Error};
 
 use image::{
     ImageBuffer, ImageError, ImageFormat, ImageReader, Rgba,
     imageops::{self, overlay},
 };
-use log::warn;
+use log::{error, warn};
 use resvg::{
-    tiny_skia::Pixmap,
+    tiny_skia::{Pixmap, PixmapMut},
     usvg::{self, Options, Transform},
 };
 use serde::Deserialize;
@@ -14,13 +16,6 @@ use serde::Deserialize;
 use crate::schema::{Fragment, Schema, SchemaFragmentType};
 
 pub type PlaceholderMap = HashMap<String, String>;
-
-pub struct XY(u32, u32);
-impl XY {
-    pub fn from_tuple(tuple: (u32, u32)) -> Self {
-        XY(tuple.0, tuple.1)
-    }
-}
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct PlaceholderValues {
@@ -47,14 +42,6 @@ impl UsedPlaceholders {
 }
 
 #[derive(Debug)]
-pub struct Renderer<'a> {
-    schema: Schema,
-    used_placeholders: UsedPlaceholders,
-    values: PlaceholderValues,
-    usvg_options: Options<'a>,
-}
-
-#[derive(Debug)]
 pub enum RenderingError {
     FileSystemError(std::io::Error),
     UTF8EncodingError(FromUtf8Error),
@@ -67,6 +54,14 @@ pub enum RenderingError {
 }
 
 pub type ImgBuf = ImageBuffer<Rgba<u8>, Vec<u8>>;
+
+#[derive(Debug)]
+pub struct Renderer<'a> {
+    schema: Schema,
+    used_placeholders: UsedPlaceholders,
+    values: PlaceholderValues,
+    usvg_options: Options<'a>,
+}
 
 impl<'a> Renderer<'a> {
     pub fn build(schema: Schema, values: PlaceholderValues) -> Self {
@@ -103,17 +98,15 @@ impl<'a> Renderer<'a> {
         svg_code: &str,
         x: f32,
         y: f32,
-        mut pixmap: Pixmap,
-    ) -> Result<Pixmap, RenderingError> {
+        pixmap_mut: &mut PixmapMut,
+    ) -> Result<(), RenderingError> {
         // TODO: use cache
         let tree = usvg::Tree::from_str(svg_code, &self.usvg_options)
             .map_err(|e| RenderingError::SVGParseError(e))?;
 
-        let mut pixmap_mut = pixmap.as_mut();
+        resvg::render(&tree, Transform::from_translate(x, y), pixmap_mut);
 
-        resvg::render(&tree, Transform::from_translate(x, y), &mut pixmap_mut);
-
-        Ok(pixmap)
+        Ok(())
     }
 
     fn pixmap_to_png(pixmap: Pixmap) -> Result<ImgBuf, RenderingError> {
@@ -165,8 +158,8 @@ impl<'a> Renderer<'a> {
     fn render_fragments<T: Fragment>(
         &mut self,
         fragments: &Vec<T>,
-        mut fragments_pixmap: Pixmap,
-    ) -> Result<Pixmap, RenderingError> {
+        fragments_pixmap_mut: &mut PixmapMut,
+    ) -> Result<(), RenderingError> {
         for fragment in fragments {
             let (placeholder_values, used_placeholders) = match fragment.fragment_type() {
                 SchemaFragmentType::Text => (&self.values.text, &mut self.used_placeholders.text),
@@ -197,25 +190,32 @@ impl<'a> Renderer<'a> {
 
             let position = fragment.position();
 
-            fragments_pixmap = self.render_svg(
+            self.render_svg(
                 &svg_code,
                 self.get_x(position.x) as f32,
                 self.get_y(position.y) as f32,
-                fragments_pixmap,
+                fragments_pixmap_mut,
             )?;
         }
 
-        Ok(fragments_pixmap)
+        Ok(())
     }
 
     fn render_to_background(&mut self, background_img: &mut ImgBuf) -> Result<(), RenderingError> {
         let mut fragments_pixmap = self.create_composite_pixmap()?;
-        fragments_pixmap =
-            self.render_fragments(&self.schema.fragments.text.clone(), fragments_pixmap)?;
-        fragments_pixmap =
-            self.render_fragments(&self.schema.fragments.images.clone(), fragments_pixmap)?;
-        fragments_pixmap =
-            self.render_fragments(&self.schema.fragments.shapes.clone(), fragments_pixmap)?;
+        let mut fragments_pixmap_mut = fragments_pixmap.as_mut();
+        self.render_fragments(
+            &self.schema.fragments.text.clone(),
+            &mut fragments_pixmap_mut,
+        )?;
+        self.render_fragments(
+            &self.schema.fragments.images.clone(),
+            &mut fragments_pixmap_mut,
+        )?;
+        self.render_fragments(
+            &self.schema.fragments.shapes.clone(),
+            &mut fragments_pixmap_mut,
+        )?;
 
         let fragments_img = Renderer::pixmap_to_png(fragments_pixmap)?;
 
@@ -224,60 +224,152 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    fn apply_binary_mask(base: &mut ImgBuf, mask: &ImgBuf) {
-        for (out_pixel, mask_pixel) in base.pixels_mut().zip(mask.pixels()) {
-            if mask_pixel[0] == 0 {
-                // Black in mask
-                *out_pixel = Rgba([0, 0, 0, 0]);
+    pub fn blend_rgba(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+        let src_a = src[3] as f32 / 255.0;
+        let dst_a = dst[3] as f32 / 255.0;
+
+        let out_a = src_a + dst_a * (1.0 - src_a);
+
+        if out_a == 0.0 {
+            return [0, 0, 0, 0];
+        }
+
+        let blend = |s: u8, d: u8| -> u8 {
+            let s = s as f32 / 255.0;
+            let d = d as f32 / 255.0;
+
+            (((s * src_a + d * dst_a * (1.0 - src_a)) / out_a) * 255.0)
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
+
+        [
+            blend(src[0], dst[0]),
+            blend(src[1], dst[1]),
+            blend(src[2], dst[2]),
+            (out_a * 255.0).round().clamp(0.0, 255.0) as u8,
+        ]
+    }
+
+    fn overlay_with_mask(bottom: &mut ImgBuf, top: &ImgBuf, mask: &ImgBuf) {
+        for ((bottom_pixel, top_pixel), mask_pixel) in
+            bottom.pixels_mut().zip(top.pixels()).zip(mask.pixels())
+        {
+            if mask_pixel[0] != 255 {
+                *bottom_pixel = *top_pixel;
+                continue;
+            }
+
+            let sa = top_pixel[3];
+            if sa == 255 {
+                *bottom_pixel = *top_pixel;
+            } else if sa != 0 {
+                *bottom_pixel = Rgba(Renderer::blend_rgba(top_pixel.0, bottom_pixel.0));
             }
         }
+    }
+
+    pub fn load_rgba_img_buf(&self, schema_asset_fp: &str) -> Result<ImgBuf, RenderingError> {
+        Ok(image::open(
+            &self
+                .schema
+                .absolute_asset_path(schema_asset_fp)
+                .map_err(|e| RenderingError::FileSystemError(e))?,
+        )
+        .map_err(|e| RenderingError::ImageError(e))?
+        .to_rgba8())
     }
 
     pub fn create_translucent_base(
         &mut self,
         mut background_img: ImgBuf,
     ) -> Result<ImgBuf, RenderingError> {
-        let translucent_base = image::open(
-            &self
-                .schema
-                .absolute_asset_path(&self.schema.static_base.translucent)
-                .map_err(|e| RenderingError::FileSystemError(e))?,
-        )
-        .map_err(|e| RenderingError::ImageError(e))?
-        .to_rgba8();
+        let buf_cache = cache::IMG_BUF_CACHE.lock();
 
-        let mask = image::open(
-            &self
-                .schema
-                .absolute_asset_path(&self.schema.static_base.mask)
-                .map_err(|e| RenderingError::FileSystemError(e))?,
-        )
-        .map_err(|e| RenderingError::ImageError(e))?
-        .to_rgba8();
+        let (translucent_base, mask) = match buf_cache {
+            Ok(mut buf_cache) => (
+                match buf_cache.filter_for(
+                    Some(self.schema.id.clone()),
+                    Some(self.schema.static_base.translucent.clone()),
+                ) {
+                    Some(translucent_base) => translucent_base,
+                    None => {
+                        let img = self.load_rgba_img_buf(&self.schema.static_base.translucent)?;
+                        buf_cache.add_entry(
+                            &self.schema.id,
+                            &self.schema.static_base.translucent,
+                            img.clone(),
+                        );
+                        img
+                    }
+                },
+                match buf_cache.filter_for(
+                    Some(self.schema.id.clone()),
+                    Some(self.schema.static_base.mask.clone()),
+                ) {
+                    Some(mask) => mask,
+                    None => {
+                        let img = self.load_rgba_img_buf(&self.schema.static_base.mask)?;
+                        buf_cache.add_entry(
+                            &self.schema.id,
+                            &self.schema.static_base.mask,
+                            img.clone(),
+                        );
+                        img
+                    }
+                },
+            ),
+            Err(err) => {
+                error!("Failed to acquire lock on cache: {err}");
+                (
+                    self.load_rgba_img_buf(&self.schema.static_base.translucent)?,
+                    self.load_rgba_img_buf(&self.schema.static_base.mask)?,
+                )
+            }
+        };
 
         let (width, height) = mask.dimensions();
         if background_img.width() > width || background_img.height() > height {
             background_img = imageops::crop(&mut background_img, 0, 0, width, height).to_image();
         }
 
-        Renderer::apply_binary_mask(&mut background_img, &mask);
+        Renderer::overlay_with_mask(&mut background_img, &translucent_base, &mask);
+        // Renderer::apply_binary_mask(&mut background_img, &mask);
+        // overlay(&mut background_img, &translucent_base, 0, 0);
 
-        overlay(&mut background_img, &translucent_base, 0, 0);
         Ok(background_img)
     }
 
     pub fn render_opaque(&mut self) -> Result<ImgBuf, RenderingError> {
-        let mut static_base = image::open(
-            &self
-                .schema
-                .absolute_asset_path(&self.schema.static_base.opaque)
-                .map_err(|e| RenderingError::FileSystemError(e))?,
-        )
-        .map_err(|e| RenderingError::ImageError(e))?
-        .to_rgba8();
+        let buf_cache = cache::IMG_BUF_CACHE.lock();
 
-        self.render_to_background(&mut static_base)?;
-        Ok(static_base)
+        let opaque_base_src = &self.schema.static_base.opaque;
+        let mut opaque_base = match buf_cache {
+            Ok(mut buf_cache) => 
+                match buf_cache.filter_for(
+                    Some(self.schema.id.clone()),
+                    Some(opaque_base_src.clone()),
+                ) {
+                    Some(opaque_base) => opaque_base,
+                    None => {
+                        let img = self.load_rgba_img_buf(opaque_base_src)?;
+                        buf_cache.add_entry(
+                            &self.schema.id,
+                            opaque_base_src,
+                            img.clone(),
+                        );
+                        img
+                    }
+                }
+            ,
+            Err(err) => {
+                error!("Failed to acquire lock on cache: {err}");
+                self.load_rgba_img_buf(opaque_base_src)?
+            }
+        };
+
+        self.render_to_background(&mut opaque_base)?;
+        Ok(opaque_base)
     }
 
     pub fn render_translucent(&mut self, background_img: ImgBuf) -> Result<ImgBuf, RenderingError> {

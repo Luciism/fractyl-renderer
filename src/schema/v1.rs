@@ -122,6 +122,7 @@ pub struct SchemaV1 {
     pub schema_file: String,
 
     pub schema_version: u64,
+    pub id: String,
     pub name: String,
     pub content_box: SchemaV1ContentBox,
     pub raster_size: SchemaV1RasterSize,

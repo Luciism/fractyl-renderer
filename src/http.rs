@@ -57,7 +57,9 @@ impl AxumRenderingServer {
 
                     let start_time = time::Instant::now();
                     let output = match form.background_image {
-                        None => renderer.render_opaque().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                        None => renderer.render_opaque().map_err(|e| {
+                            log::error!("Failed to add renderer: {e:#?}");
+                            StatusCode::INTERNAL_SERVER_ERROR})?,
                         Some(background_image) => {
                             match background_image.metadata.content_type {
                                 Some(content_type) => {
@@ -70,16 +72,21 @@ impl AxumRenderingServer {
 
                             let cursor = Cursor::new(background_image.contents);
                             let image = image::load(cursor, ImageFormat::Png).map_err(|_| StatusCode::BAD_REQUEST)?.to_rgba8();
-                            renderer.render_translucent(image).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                            renderer.render_translucent(image).map_err(|e| {
+                                log::error!("Rendering failed: {e:#?}");
+                                StatusCode::INTERNAL_SERVER_ERROR})?
                         }
                     };
 
                     let render_time =  time::Instant::now() - start_time;
+                    let start_time = time::Instant::now();
 
                     let mut output_buffer = Vec::new();
-                    output.write_to(&mut Cursor::new(&mut output_buffer), ImageFormat::Png).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    output.write_to(&mut Cursor::new(&mut output_buffer), ImageFormat::Png).map_err(|e| {
+                        log::error!("Failed to write PNG image to buffer: {e:#?}");
+                        StatusCode::INTERNAL_SERVER_ERROR})?;
 
-                    let write_time = time::Instant::now() - start_time - render_time;
+                    let write_time = time::Instant::now() - start_time;
 
                     info!("Render Time: {}ms", render_time.as_millis());
                     info!("Write Time: {}ms", write_time.as_millis());
@@ -88,7 +95,9 @@ impl AxumRenderingServer {
                         .status(StatusCode::OK)
                         .header(http::header::CONTENT_TYPE, "image/png")
                         .body(Body::from(output_buffer))
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?)
+                        .map_err(|e| {
+                            log::error!("Failed to send response: {e:#?}");
+                            StatusCode::INTERNAL_SERVER_ERROR})?)
                 },
             ),
         ).layer(DefaultBodyLimit::max(10*1024*1025));
