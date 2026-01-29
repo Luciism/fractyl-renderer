@@ -6,7 +6,7 @@ use image::{
     ImageBuffer, ImageError, ImageFormat, ImageReader, Rgba,
     imageops::{self, overlay},
 };
-use log::{error, warn};
+use log::{error, info, warn};
 use resvg::{
     tiny_skia::{Pixmap, PixmapMut},
     usvg::{self, Options, Transform},
@@ -16,12 +16,75 @@ use serde::Deserialize;
 use crate::schema::{Fragment, Schema, SchemaFragmentType};
 
 pub type PlaceholderMap = HashMap<String, String>;
+pub type TextPlaceholderMap = HashMap<String, Vec<TextSpan>>;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct PlaceholderValues {
-    pub text: PlaceholderMap,
+    pub text: TextPlaceholderMap,
     pub images: PlaceholderMap,
     pub shapes: PlaceholderMap,
+}
+
+impl PlaceholderValues {
+    pub fn text(&self) -> PlaceholderMap {
+        let mut map = HashMap::new();
+
+        for (id, spans) in &self.text {
+            let values: Vec<String> = spans.iter().map(|span| span.to_tspan()).collect();
+            map.insert(id.clone(), values.join(""));
+        }
+
+        info!("{map:#?}");
+        map
+    }
+
+    pub fn images(&self) -> PlaceholderMap {
+        self.images.clone()
+    }
+
+    pub fn shapes(&self) -> PlaceholderMap {
+        self.shapes.clone()
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct TextSpan {
+    pub value: String,
+    pub fill: Option<String>,
+    pub font_size: Option<f32>,
+    pub font_weight: Option<u32>,
+    pub font_family: Option<String>,
+}
+
+impl TextSpan {
+    fn escaped_value(&self) -> String {
+        self.value.replace("&", "&amp;").replace(">", "&gt;").replace("<", "&lt;")
+    }
+
+    pub fn to_tspan(&self) -> String {
+        let mut attributes = vec![];
+
+        if let Some(fill) = &self.fill {
+            attributes.push(format!("fill=\"{fill}\""));
+        }
+
+        if let Some(font_size) = self.font_size {
+            attributes.push(format!("font-size=\"{font_size}\""));
+        }
+
+        if let Some(font_weight) = self.font_weight {
+            attributes.push(format!("font-weight=\"{font_weight}\""));
+        }
+
+        if let Some(font_family) = &self.font_family {
+            attributes.push(format!("font-family=\"{font_family}\""));
+        }
+
+        format!("<tspan {} xml:space=\"preserve\">{}</tspan>",
+            attributes.join(" "),
+            self.escaped_value()
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -64,7 +127,11 @@ pub struct Renderer<'a> {
 }
 
 impl<'a> Renderer<'a> {
-    pub fn build(schema: Schema, values: PlaceholderValues, options: &'a usvg::Options<'a>) -> Self {
+    pub fn build(
+        schema: Schema,
+        values: PlaceholderValues,
+        options: &'a usvg::Options<'a>,
+    ) -> Self {
         Renderer {
             schema,
             used_placeholders: UsedPlaceholders::new(),
@@ -159,12 +226,12 @@ impl<'a> Renderer<'a> {
     ) -> Result<(), RenderingError> {
         for fragment in fragments {
             let (placeholder_values, used_placeholders) = match fragment.fragment_type() {
-                SchemaFragmentType::Text => (&self.values.text, &mut self.used_placeholders.text),
+                SchemaFragmentType::Text => (&self.values.text(), &mut self.used_placeholders.text),
                 SchemaFragmentType::Image => {
-                    (&self.values.images, &mut self.used_placeholders.images)
+                    (&self.values.images(), &mut self.used_placeholders.images)
                 }
                 SchemaFragmentType::Shape => {
-                    (&self.values.shapes, &mut self.used_placeholders.shapes)
+                    (&self.values.shapes(), &mut self.used_placeholders.shapes)
                 }
             };
 
@@ -342,23 +409,16 @@ impl<'a> Renderer<'a> {
 
         let opaque_base_src = &self.schema.static_base.opaque;
         let mut opaque_base = match buf_cache {
-            Ok(mut buf_cache) => 
-                match buf_cache.filter_for(
-                    Some(self.schema.id.clone()),
-                    Some(opaque_base_src.clone()),
-                ) {
-                    Some(opaque_base) => opaque_base,
-                    None => {
-                        let img = self.load_rgba_img_buf(opaque_base_src)?;
-                        buf_cache.add_entry(
-                            &self.schema.id,
-                            opaque_base_src,
-                            img.clone(),
-                        );
-                        img
-                    }
+            Ok(mut buf_cache) => match buf_cache
+                .filter_for(Some(self.schema.id.clone()), Some(opaque_base_src.clone()))
+            {
+                Some(opaque_base) => opaque_base,
+                None => {
+                    let img = self.load_rgba_img_buf(opaque_base_src)?;
+                    buf_cache.add_entry(&self.schema.id, opaque_base_src, img.clone());
+                    img
                 }
-            ,
+            },
             Err(err) => {
                 error!("Failed to acquire lock on cache: {err}");
                 self.load_rgba_img_buf(opaque_base_src)?
