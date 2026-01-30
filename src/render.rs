@@ -6,7 +6,7 @@ use image::{
     ImageBuffer, ImageError, ImageFormat, ImageReader, Rgba,
     imageops::{self, overlay},
 };
-use log::{error, info, warn};
+use log::{error, warn};
 use resvg::{
     tiny_skia::{Pixmap, PixmapMut},
     usvg::{self, Options, Transform},
@@ -34,7 +34,6 @@ impl PlaceholderValues {
             map.insert(id.clone(), values.join(""));
         }
 
-        info!("{map:#?}");
         map
     }
 
