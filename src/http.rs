@@ -1,4 +1,4 @@
-use std::{io::Cursor, sync::Mutex, time};
+use std::{io::Cursor, path::Path, sync::Mutex, time};
 
 use axum::{
     Router,
@@ -15,8 +15,10 @@ use tokio::net::TcpListener;
 
 use crate::{
     render::{PlaceholderValues, Renderer},
-    schema::Schema,
+    schema::{self, Schema},
 };
+
+const DEFAULT_EXPORT_DIR: &str = "exports";
 
 pub struct AxumRenderingServer {
     app_router: Router,
@@ -32,6 +34,24 @@ struct CreateRenderData {
     background_image: Option<axum_typed_multipart::FieldData<axum::body::Bytes>>,
 
     pub placeholder_values: FieldData<String>,
+}
+
+#[derive(Debug)]
+pub enum DiscoveryError {
+    IoError(std::io::Error),
+    SchemaError(schema::SchemaError),
+}
+
+impl From<std::io::Error> for DiscoveryError {
+    fn from(value: std::io::Error) -> Self {
+        DiscoveryError::IoError(value)
+    }
+}
+
+impl From<schema::SchemaError> for DiscoveryError {
+    fn from(value: schema::SchemaError) -> Self {
+        DiscoveryError::SchemaError(value)
+    }
 }
 
 impl AxumRenderingServer {
@@ -52,9 +72,40 @@ impl AxumRenderingServer {
         &self.app_router
     }
 
-    pub fn add_renderer(mut self, schema: Schema, path: &str) -> Self {
+    pub fn discover_templates(mut self) -> Result<Self, DiscoveryError> {
+        let templates_dir = Path::new(DEFAULT_EXPORT_DIR);
+
+        if templates_dir.try_exists()? && templates_dir.is_dir() {
+            for entry in templates_dir.read_dir()? {
+                let entry = entry?;
+
+                if !entry.path().is_dir() {
+                    continue;
+                }
+
+                let mut schema_path = entry.path();
+                schema_path.push("schema.json");
+
+                let dir_filename = entry.file_name();
+                let dirname = dir_filename
+                    .to_str()
+                    .ok_or(std::io::Error::other("Failed to read dirname"))?;
+
+                let schema =
+                    schema::load_schema_from_file(&schema_path.to_string_lossy().to_string())?;
+
+                self = self.add_renderer(schema, &format!("/{dirname}"));
+            }
+        }
+
+        Ok(self)
+    }
+
+    pub fn add_renderer(mut self, schema: Schema, route_path: &str) -> Self {
+        let schema_file = schema.schema_file.clone();
+
         self.app_router = self.app_router.route(
-            path,
+            route_path,
             post(
                 async |TypedMultipart(form): TypedMultipart<CreateRenderData>| -> Result<Response<Body>, StatusCode> {
                     let placeholder_values: PlaceholderValues =
@@ -114,6 +165,7 @@ impl AxumRenderingServer {
             ),
         ).layer(DefaultBodyLimit::max(10*1024*1025));
 
+        info!("Registered {route_path} for schema at '{schema_file}'");
         self
     }
 }
