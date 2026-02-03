@@ -18,7 +18,7 @@ use crate::{
     schema::{self, Schema},
 };
 
-const DEFAULT_EXPORT_DIR: &str = "exports";
+const DEFAULT_EXPORT_DIR: &str = "templates";
 
 pub struct AxumRenderingServer {
     app_router: Router,

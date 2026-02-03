@@ -11,13 +11,13 @@ The renderer can either be used directly through the `Renderer` struct or by cre
 
 ### Folder Structure
 
-The renderer expects to find templates in the `./exports` directory. Each template is a directory with a `schema.json`. It's contents should be the extracted contents of a exported template from Figma and does not need human editing.
+When discovering templates, the renderer expects to find templates in the `./templates` directory. Each template is a directory with a `schema.json`. It's contents should be the extracted contents of a exported template from Figma and does not need human editing.
 
 The renderer expects to find fonts in the `./fonts` directory. This directory should contain all the fonts used in the templates. If fonts are missing, the renderer will either fallback to another font, or render invisible text.
 
 ```
 fonts/
-exports/
+templates/
 src/
     main.rs
 ```
@@ -30,7 +30,7 @@ use fractyl_renderer::render::{Renderer, PlaceholderValues, TextSpan};
 use fracyl_renderer::schema::load_schema_from_file;
 
 // Load the automatically generated template schema
-let schema = load_schema_from_file("exports/example/schema.json").unwrap();
+let schema = load_schema_from_file("templates/example/schema.json").unwrap();
 
 // Create a mapping of placeholder values to fill in
 let mut shape_values = HashMap::new();
@@ -76,10 +76,10 @@ use fractyl_renderer::http::AxumRenderingServer;
 async fn main() {
     // Manually specify routing
     let server = AxumRenderingServer::new().add_renderer(
-        schema::load_schema_from_file("./exports/example/schema.json").unwrap(),
+        schema::load_schema_from_file("./templates/example/schema.json").unwrap(),
         "/example1",
     ).add_renderer(
-        schema::load_schema_from_file("./exports/example2/schema.json").unwrap(),
+        schema::load_schema_from_file("./templates/example2/schema.json").unwrap(),
         "/example2",
     );
 
