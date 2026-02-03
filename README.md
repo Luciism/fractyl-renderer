@@ -8,6 +8,20 @@ Fractyl is a system for creating game statistic cards. It uses Figma as a design
 
 The renderer can either be used directly through the `Renderer` struct or by creating a REST API using the `AxumRenderingServer` struct.
 
+
+### Folder Structure
+
+The renderer expects to find templates in the `./exports` directory. Each template is a directory with a `schema.json`. It's contents should be the extracted contents of a exported template from Figma and does not need human editing.
+
+The renderer expects to find fonts in the `./fonts` directory. This directory should contain all the fonts used in the templates. If fonts are missing, the renderer will either fallback to another font, or render invisible text.
+
+```
+fonts/
+exports/
+src/
+    main.rs
+```
+
 ### Direct Usage
 
 ```rust
