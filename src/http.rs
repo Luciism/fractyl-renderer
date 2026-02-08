@@ -14,7 +14,8 @@ use resvg::usvg;
 use tokio::net::TcpListener;
 
 use crate::{
-    render::{PlaceholderValues, Renderer},
+    render::Renderer,
+    placeholders::PlaceholderValues,
     schema::{self, Schema},
 };
 

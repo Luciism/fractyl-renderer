@@ -1,6 +1,6 @@
 mod cache;
 
-use std::{collections::HashMap, string::FromUtf8Error};
+use std::string::FromUtf8Error;
 
 use image::{
     ImageBuffer, ImageError, ImageFormat, ImageReader, Rgba,
@@ -11,97 +11,10 @@ use resvg::{
     tiny_skia::{Pixmap, PixmapMut},
     usvg::{self, Options, Transform},
 };
-use serde::Deserialize;
 
 use crate::schema::{Fragment, Schema, SchemaFragmentType};
 
-pub type PlaceholderMap = HashMap<String, String>;
-pub type TextPlaceholderMap = HashMap<String, Vec<TextSpan>>;
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct PlaceholderValues {
-    pub text: TextPlaceholderMap,
-    pub images: PlaceholderMap,
-    pub shapes: PlaceholderMap,
-}
-
-impl PlaceholderValues {
-    pub fn text(&self) -> PlaceholderMap {
-        let mut map = HashMap::new();
-
-        for (id, spans) in &self.text {
-            let values: Vec<String> = spans.iter().map(|span| span.to_tspan()).collect();
-            map.insert(id.clone(), values.join(""));
-        }
-
-        map
-    }
-
-    pub fn images(&self) -> PlaceholderMap {
-        self.images.clone()
-    }
-
-    pub fn shapes(&self) -> PlaceholderMap {
-        self.shapes.clone()
-    }
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct TextSpan {
-    pub value: String,
-    pub fill: Option<String>,
-    pub font_size: Option<f32>,
-    pub font_weight: Option<u32>,
-    pub font_family: Option<String>,
-}
-
-impl TextSpan {
-    fn escaped_value(&self) -> String {
-        self.value.replace("&", "&amp;").replace(">", "&gt;").replace("<", "&lt;")
-    }
-
-    pub fn to_tspan(&self) -> String {
-        let mut attributes = vec![];
-
-        if let Some(fill) = &self.fill {
-            attributes.push(format!("fill=\"{fill}\""));
-        }
-
-        if let Some(font_size) = self.font_size {
-            attributes.push(format!("font-size=\"{font_size}\""));
-        }
-
-        if let Some(font_weight) = self.font_weight {
-            attributes.push(format!("font-weight=\"{font_weight}\""));
-        }
-
-        if let Some(font_family) = &self.font_family {
-            attributes.push(format!("font-family=\"{font_family}\""));
-        }
-
-        format!("<tspan {} xml:space=\"preserve\">{}</tspan>",
-            attributes.join(" "),
-            self.escaped_value()
-        )
-    }
-}
-
-#[derive(Debug)]
-struct UsedPlaceholders {
-    text: Vec<String>,
-    images: Vec<String>,
-    shapes: Vec<String>,
-}
-
-impl UsedPlaceholders {
-    fn new() -> Self {
-        UsedPlaceholders {
-            text: vec![],
-            images: vec![],
-            shapes: vec![],
-        }
-    }
-}
+use crate::placeholders::{PlaceholderValues, UsedPlaceholders, PlaceholderValueMap};
 
 #[derive(Debug)]
 pub enum RenderingError {
@@ -190,7 +103,7 @@ impl<'a> Renderer<'a> {
 
     fn replace_placeholders(
         schema_placeholders: &Vec<String>,
-        placeholder_values: &PlaceholderMap,
+        placeholder_values: &PlaceholderValueMap,
         mut svg_code: String,
         used_placeholders: &mut Vec<String>,
         mut unused_placeholders: Vec<String>,
