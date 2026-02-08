@@ -1,32 +1,35 @@
 // For future schema versions, a migration system shall be implemented.
 
-#[allow(unused)]
 mod v1;
+pub use v1::Fragment;
 
 use serde_json::Value;
-use v1::SchemaV1;
-
-pub use v1::SchemaV1Fragment as Fragment;
-use v1::{
-    SchemaV1FragmentType, SchemaV1ImageFragment, SchemaV1ShapeFragment, SchemaV1TextFragment,
-};
 
 #[derive(Debug)]
+/** Schema load errors. */
 pub enum SchemaError {
+    /// The schema file was not found.
     FileNotFoundError,
+    /// The schema file could not be read.
     FileReadError(std::io::Error),
+    /// The schema file could not be decoded.
     SchemaDecodeError(serde_json::Error),
+    /// The schema file is malformed.
     MalformedSchema(String),
+    /// Unknown schema version.
     UnknownVersion(u64),
 }
 
-pub type Schema = SchemaV1;
+pub type Schema = v1::Schema;
+pub type SchemaTextFragment = v1::TextFragment;
+pub type SchemaImageFragment = v1::ImageFragment;
+pub type SchemaShapeFragment = v1::ShapeFragment;
+pub type SchemaFragmentType = v1::FragmentType;
 
-pub type SchemaTextFragment = SchemaV1TextFragment;
-pub type SchemaImageFragment = SchemaV1ImageFragment;
-pub type SchemaShapeFragment = SchemaV1ShapeFragment;
-pub type SchemaFragmentType = SchemaV1FragmentType;
-
+/// Load a schema from a file.
+///
+/// # Parameters
+/// - `schema_fp` - The path to the schema file.
 pub fn load_schema_from_file(schema_fp: &str) -> Result<Schema, SchemaError> {
     if !std::fs::exists(schema_fp).map_err(|e| SchemaError::FileReadError(e))? {
         return Err(SchemaError::FileNotFoundError);
