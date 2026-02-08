@@ -17,6 +17,7 @@ use crate::schema::{Fragment, Schema, SchemaFragmentType};
 use crate::placeholders::{PlaceholderValues, UsedPlaceholders, PlaceholderValueMap};
 
 #[derive(Debug)]
+/** Rendering errors. */
 pub enum RenderingError {
     FileSystemError(std::io::Error),
     UTF8EncodingError(FromUtf8Error),
@@ -28,17 +29,30 @@ pub enum RenderingError {
     ImageError(ImageError),
 }
 
+/// An RGBA image buffer.
 pub type ImgBuf = ImageBuffer<Rgba<u8>, Vec<u8>>;
 
 #[derive(Debug)]
+/** The main renderer. */
 pub struct Renderer<'a> {
+    /// The schema that determines the layout of the render and all of its elements.
     schema: Schema,
+    /// Tracks placeholders that have been used.
     used_placeholders: UsedPlaceholders,
+    /// The placeholder values to use.
     values: PlaceholderValues,
+    /// The usvg options to use.
     usvg_options: &'a Options<'a>,
 }
 
 impl<'a> Renderer<'a> {
+    /// Creates a new renderer.
+    ///
+    /// # Arguments
+    ///
+    /// - `schema` - The schema that determines the layout of the render and all of its elements.
+    /// - `values` - The placeholder values to use.
+    /// - `options` - The usvg options to use.
     pub fn build(
         schema: Schema,
         values: PlaceholderValues,
@@ -52,14 +66,25 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    /// Returns the X position with respect to the content box.
+    ///
+    /// # Arguments
+    ///
+    /// - `x` - The X position specified in the schema.
     fn get_x(&self, x: u32) -> i64 {
         (self.schema.content_box.raster_x + x).into()
     }
 
+    /// Returns the Y position with respect to the content box.
+    ///
+    /// # Arguments
+    ///
+    /// - `y` - The Y position specified in the schema.
     fn get_y(&self, y: u32) -> i64 {
         (self.schema.content_box.raster_y + y).into()
     }
 
+    /// Creates a new pixmap for rendering fragments onto.
     fn create_composite_pixmap(&self) -> Result<Pixmap, RenderingError> {
         let raster_size = &self.schema.raster_size;
 
@@ -69,6 +94,14 @@ impl<'a> Renderer<'a> {
         Ok(pixmap)
     }
 
+    /// Renders an SVG onto a pixmap.
+    ///
+    /// # Arguments
+    ///
+    /// - `svg_code` - The SVG code to render.
+    /// - `x` - The X position to render at.
+    /// - `y` - The Y position to render at.
+    /// - `pixmap_mut` - The pixmap to render onto.
     fn render_svg(
         &self,
         svg_code: &str,
@@ -85,6 +118,7 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
+    /// Converts a pixmap to an RGBA image buffer.
     fn pixmap_to_png(pixmap: Pixmap) -> Result<ImgBuf, RenderingError> {
         let encoded_png = pixmap
             .to_owned()
@@ -101,6 +135,16 @@ impl<'a> Renderer<'a> {
             .to_rgba8())
     }
 
+
+    /// Replaces placeholders with values in SVG code.
+    ///
+    /// # Arguments
+    ///
+    /// - `schema_placeholders` - The placeholders specified in the schema.
+    /// - `placeholder_values` - The placeholder values to use.
+    /// - `svg_code` - The SVG code to replace placeholders in.
+    /// - `used_placeholders` - The placeholders that have been used.
+    /// - `unused_placeholders` - The placeholders that have not been used.
     fn replace_placeholders(
         schema_placeholders: &Vec<String>,
         placeholder_values: &PlaceholderValueMap,
@@ -131,6 +175,12 @@ impl<'a> Renderer<'a> {
         svg_code
     }
 
+    /// Renders all specified fragments onto a pixmap. Fragments can be of any fragment type.
+    ///
+    /// # Arguments
+    ///
+    /// - `fragments` - The fragments to render.
+    /// - `fragments_pixmap_mut` - The pixmap to render onto.
     fn render_fragments<T: Fragment>(
         &mut self,
         fragments: &Vec<T>,
@@ -177,6 +227,7 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
+    /// Renders all fragments onto a background image.
     fn render_to_background(&mut self, background_img: &mut ImgBuf) -> Result<(), RenderingError> {
         let mut fragments_pixmap = self.create_composite_pixmap()?;
         let mut fragments_pixmap_mut = fragments_pixmap.as_mut();
@@ -200,6 +251,12 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
+    /// Utility function for blending two RGBA values.
+    ///
+    /// # Arguments
+    ///
+    /// - `src` - The source RGBA value.
+    /// - `dst` - The destination RGBA value.
     pub fn blend_rgba(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
         let src_a = src[3] as f32 / 255.0;
         let dst_a = dst[3] as f32 / 255.0;
@@ -227,6 +284,14 @@ impl<'a> Renderer<'a> {
         ]
     }
 
+    /// Utility function for overlaying two images with a mask.
+    ///
+    /// - If the mask pixel is not white, the bottom pixel is replaced with the top pixel.
+    ///
+    /// Otherwise if the mask pixel is white:
+    /// - If the top pixel is opaque, the bottom pixel is replaced with the top pixel.
+    /// - Otherwise if the top pixel is not completely transparent, the bottom pixel is blended with the top pixel.
+    /// - Otherwise the bottom pixel is left unchanged.
     fn overlay_with_mask(bottom: &mut ImgBuf, top: &ImgBuf, mask: &ImgBuf) {
         for ((bottom_pixel, top_pixel), mask_pixel) in
             bottom.pixels_mut().zip(top.pixels()).zip(mask.pixels())
@@ -245,6 +310,7 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    /// Loads an RGBA image buffer from a file.
     pub fn load_rgba_img_buf(&self, schema_asset_fp: &str) -> Result<ImgBuf, RenderingError> {
         Ok(image::open(
             &self
@@ -256,6 +322,7 @@ impl<'a> Renderer<'a> {
         .to_rgba8())
     }
 
+    /// Creates a translucent base image by blending the background image with the translucent base image.
     pub fn create_translucent_base(
         &mut self,
         mut background_img: ImgBuf,
@@ -310,12 +377,11 @@ impl<'a> Renderer<'a> {
         }
 
         Renderer::overlay_with_mask(&mut background_img, &translucent_base, &mask);
-        // Renderer::apply_binary_mask(&mut background_img, &mask);
-        // overlay(&mut background_img, &translucent_base, 0, 0);
 
         Ok(background_img)
     }
 
+    /// Renders the layout to the opaque base image.
     pub fn render_opaque(&mut self) -> Result<ImgBuf, RenderingError> {
         let buf_cache = cache::IMG_BUF_CACHE.lock();
 
@@ -341,6 +407,7 @@ impl<'a> Renderer<'a> {
         Ok(opaque_base)
     }
 
+    /// Renders the layout to the translucent base image using the specified background image.
     pub fn render_translucent(&mut self, background_img: ImgBuf) -> Result<ImgBuf, RenderingError> {
         let mut static_base = self.create_translucent_base(background_img)?;
         self.render_to_background(&mut static_base)?;
