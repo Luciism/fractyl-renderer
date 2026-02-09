@@ -29,43 +29,50 @@ use image;
 use fractyl_renderer::render::{Renderer, PlaceholderValues, TextSpan};
 use fracyl_renderer::schema::load_schema_from_file;
 
-// Load the automatically generated template schema
-let schema = load_schema_from_file("templates/example/schema.json").unwrap();
+fn main() {
+    // Load the automatically generated template schema
+    let schema = load_schema_from_file("templates/example/schema.json").unwrap();
 
-// Create a mapping of placeholder values to fill in
-let mut shape_values = HashMap::new();
-shape_values.insert("progress_bar#width", "120");
-shape_values.insert("progress_bar#fill", "#00FF00");
+    // Create a mapping of placeholder values to fill in
+    let mut shape_values = HashMap::new();
+    shape_values.insert("progress_bar#width", "120");
+    shape_values.insert("progress_bar#fill", "#00FF00");
 
-let mut image_values = HashMap::new();
-shape_values.insert("player_model#href", "data:image/png;base64,...");
+    let mut image_values = HashMap::new();
+    shape_values.insert("player_model#href", "data:image/png;base64,...");
 
-// Unset styles will fallback to parent styles
-let mut text_values = HashMap::new();
-text_values.insert("stat_wins#text", TextSpan {value: "5", fill: None, font_size: None, font_weight: None, font_family: None});
+    // Unset styles will fallback to parent styles
+    let mut text_values = HashMap::new();
+    text_values.insert("stat_wins#text", TextSpan {value: "5", fill: None, font_size: None, font_weight: None, font_family: None});
 
 
-let values = PlaceholderValues {
-    shapes: shapes,
-    images: images,
-    text: text
-};
+    let values = PlaceholderValues {
+        shapes: shapes,
+        images: images,
+        text: text
+    };
 
-let mut options = usvg::Options::default();
-options.fontdb_mut().load_fonts_dir("./fonts/");
+    let mut options = usvg::Options::default();
+    options.fontdb_mut().load_fonts_dir("./fonts/");
 
-let renderer = Renderer::new(schema, values, options);
+    let renderer = Renderer::new(schema, values, options);
 
-// Render regular template
-renderer.render_opaque().unwrap();
+    // Render regular template
+    renderer.render_opaque().unwrap();
 
-// Render translucent template with background image
-renderer.render_translucent(
-    image::open("path/to/image.png").unwrap().to_rgba8()
-).unwrap();
+    // Render translucent template with background image
+    renderer.render_translucent(
+        image::open("path/to/image.png").unwrap().to_rgba8()
+    ).unwrap();
+}
 ```
 
 ### REST API
+
+Every rendering route on the rendering server expects a `multipart/form-data` request with the following fields:
+
+- `placeholder_values` - A stringified JSON object containing the placeholder values to fill in.
+- `background_image` - An optional image to use as the background (limited to 10MB).
 
 Setup rendering server:
 
@@ -133,3 +140,25 @@ async with ClientSession(timeout=ClientTimeout(total=10)) as session:
     # Rendered output
     render_bytes = await res.content.read()
 ```
+
+
+## Background Images
+
+Background images are optional and will slightly increase render time. If not provided, the renderer will render the template without a background image.
+
+It is critical that the background image provided is the same size or larger than the template, otherwise the output will have some interesting effects. Background images that exceed the size of the template will be cropped.
+
+
+## Timings
+
+The render time will vary based on a number of factors such as:
+- The complexity of the template
+- The size of the template
+- Whether a background image is provided
+
+
+For an example template with a shape, image, and text, sized (1200x780px):
+- When using a development build, an expected render time would be in the ballpark of 1-3 seconds (up to 8 seconds when using a custom background).
+- When using a production build, an expected render time would be in the ballpark of 80-200 milliseconds (280-350 milliseconds when using a custom background).
+
+> Note that these are very rough estimates and will vary depending on the hardware and layout composition.
