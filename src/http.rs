@@ -21,25 +21,28 @@ use crate::{
 
 const DEFAULT_EXPORT_DIR: &str = "templates";
 
-pub struct AxumRenderingServer {
-    app_router: Router,
-}
 
 lazy_static::lazy_static! {
     pub static ref USVG_OPTIONS: Mutex<usvg::Options<'static>> = Mutex::new(usvg::Options::default());
 }
 
 #[derive(Debug, TryFromMultipart)]
+/// Form data for creating a new render.
 struct CreateRenderData {
     #[form_data(limit = "10MB")]
-    background_image: Option<axum_typed_multipart::FieldData<axum::body::Bytes>>,
+    /// The background image to use for the render.
+    background_image: Option<FieldData<axum::body::Bytes>>,
 
+    /// The placeholder values to use for the render.
     pub placeholder_values: FieldData<String>,
 }
 
 #[derive(Debug)]
+/// Errors that can occur during template discovery.
 pub enum DiscoveryError {
+    /// An I/O error occurred.
     IoError(std::io::Error),
+    /// A schema error occurred.
     SchemaError(schema::SchemaError),
 }
 
@@ -55,7 +58,14 @@ impl From<schema::SchemaError> for DiscoveryError {
     }
 }
 
+/// An HTTP server that can be used to render templates with the provided placeholder values.
+pub struct AxumRenderingServer {
+    /// The router for the HTTP server.
+    app_router: Router,
+}
+
 impl AxumRenderingServer {
+    /// Creates a new AxumRenderingServer.
     pub fn new() -> Self {
         let mut options = USVG_OPTIONS.lock().unwrap();
         options.fontdb_mut().load_fonts_dir("./fonts/");
@@ -65,14 +75,21 @@ impl AxumRenderingServer {
         }
     }
 
+    /// Starts the AxumRenderingServer.
+    ///
+    /// # Arguments
+    ///
+    /// - `listener` - The listener to use for the HTTP server.
     pub async fn serve(self, listener: TcpListener) -> Result<(), std::io::Error> {
         axum::serve(listener, self.app_router).await
     }
 
+    /// Returns the router for the AxumRenderingServer.
     pub fn router(&self) -> &Router {
         &self.app_router
     }
 
+    /// Discovers templates in the default templates directory and adds them to the AxumRenderingServer.
     pub fn discover_templates(mut self) -> Result<Self, DiscoveryError> {
         let templates_dir = Path::new(DEFAULT_EXPORT_DIR);
 
@@ -102,6 +119,12 @@ impl AxumRenderingServer {
         Ok(self)
     }
 
+    /// Adds a new renderer route to the rendering server.
+    ///
+    /// # Arguments
+    ///
+    /// - `schema` - The schema to use for the renderer.
+    /// - `route_path` - The route path to use for the renderer.
     pub fn add_renderer(mut self, schema: Schema, route_path: &str) -> Self {
         let schema_file = schema.schema_file.clone();
 
