@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 pub type ExpectedPlaceholders = Vec<String>;
 pub type PlaceholderValueMap = HashMap<String, String>;
-pub type TextPlaceholderValueMap = HashMap<String, Vec<TextSpan>>;
+pub type TextPlaceholderValueMap = HashMap<String, TextPlaceholderValue>;
 
 #[derive(Deserialize, Debug, Clone)]
 /// Placeholder values.
@@ -22,9 +22,16 @@ impl PlaceholderValues {
     pub fn text(&self) -> PlaceholderValueMap {
         let mut map = HashMap::new();
 
-        for (id, spans) in &self.text {
-            let values: Vec<String> = spans.iter().map(|span| span.to_tspan()).collect();
-            map.insert(id.clone(), values.join(""));
+        for (id, value) in &self.text {
+            let output_value = match value {
+                TextPlaceholderValue::MultiTSpan(spans) => {
+                    let tspans: Vec<String> = spans.iter().map(|span| span.to_tspan()).collect();
+                    tspans.join("")
+                }
+                TextPlaceholderValue::SingleTSpan(span) => span.to_tspan(),
+                TextPlaceholderValue::String(str_val) => str_val.to_string()
+            };
+            map.insert(id.clone(), output_value);
         }
 
         map
@@ -39,6 +46,14 @@ impl PlaceholderValues {
     pub fn shapes(&self) -> PlaceholderValueMap {
         self.shapes.clone()
     }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum TextPlaceholderValue {
+    MultiTSpan(Vec<TextSpan>),
+    SingleTSpan(TextSpan),
+    String(String)
 }
 
 #[derive(Deserialize, Debug, Clone)]
