@@ -105,7 +105,10 @@ Then make requests to the HTTP server (127.0.0.1:3001 in this example):
 ```py
 placeholder_values = {
     "text": {
-        "stat_wins#text": {"value": "5"}
+        # Allow of the following are accepted.
+        "stat_kills#text": "5",  # Single value
+        "stat_deaths#text": {"value": "5"},  # Single value with optional style overrides
+        "stat_kdr#text": [{"value": "5"}]  # Multiple values with optional style overrides
     },
     "shapes": {
         "progress_bar#width": "120",
