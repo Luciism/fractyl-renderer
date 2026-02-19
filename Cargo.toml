@@ -4,7 +4,7 @@ description="Fractyl is a system for creating game statistic cards. It uses Figm
 homepage = "https://github.com/Luciism/fractyl-renderer"
 repository = "https://github.com/Luciism/fractyl-renderer"
 readme = "README.md"
-license = "MPL 2.0"
+license = "GPL-2.0-or-later WITH Bison-exception-2.2"
 
 keywords = ["rendering", "svg", "figma", "fractyl"]
 categories = ["graphics", "template-engine"]
