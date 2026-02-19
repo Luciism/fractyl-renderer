@@ -42,11 +42,12 @@ fn main() {
     shape_values.insert("progress_bar#fill".to_string(), "#00FF00".to_string());
 
     let mut image_values = HashMap::new();
-    shape_values.insert("player_model#href".to_string(), "data:image/png;base64,...".to_string());
+    image_values.insert("player_model#href".to_string(), "data:image/png;base64,...".to_string());
 
     // Unset styles will fallback to parent styles
     let mut text_values = HashMap::new();
     text_values.insert("stat_wins#text".to_string(), TextPlaceholderValue::String("5".to_string()));
+
 
     let values = PlaceholderValues {
         shapes: shape_values,
@@ -57,7 +58,7 @@ fn main() {
     let mut options = usvg::Options::default();
     options.fontdb_mut().load_fonts_dir("./fonts/");
 
-    let renderer = Renderer::build(schema, values, options);
+    let mut renderer = Renderer::build(schema, values, &options);
 
     // Render regular template
     renderer.render_opaque().unwrap();
