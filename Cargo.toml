@@ -1,5 +1,14 @@
 [package]
 name = "fractyl-renderer"
+description="Fractyl is a system for creating game statistic cards. It uses Figma as a design tool and generates SVG templates that can be filled in with data at render time."
+homepage = "https://github.com/Luciism/fractyl-renderer"
+repository = "https://github.com/Luciism/fractyl-renderer"
+readme = "README.md"
+license = "MPL 2.0"
+
+keywords = ["rendering", "svg", "figma", "fractyl"]
+categories = ["graphics", "template-engine"]
+
 version = "0.1.1"
 edition = "2024"
 
