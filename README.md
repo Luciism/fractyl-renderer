@@ -25,9 +25,12 @@ src/
 ### Direct Usage
 
 ```rust
-use image;
-use fractyl_renderer::render::{Renderer, PlaceholderValues, TextSpan};
-use fracyl_renderer::schema::load_schema_from_file;
+use std::collections::HashMap;
+
+use fractyl_renderer::{image, usvg};
+use fractyl_renderer::render::Renderer;
+use fractyl_renderer::placeholders::{PlaceholderValues, TextPlaceholderValue};
+use fractyl_renderer::schema::load_schema_from_file;
 
 fn main() {
     // Load the automatically generated template schema
@@ -35,27 +38,26 @@ fn main() {
 
     // Create a mapping of placeholder values to fill in
     let mut shape_values = HashMap::new();
-    shape_values.insert("progress_bar#width", "120");
-    shape_values.insert("progress_bar#fill", "#00FF00");
+    shape_values.insert("progress_bar#width".to_string(), "120".to_string());
+    shape_values.insert("progress_bar#fill".to_string(), "#00FF00".to_string());
 
     let mut image_values = HashMap::new();
-    shape_values.insert("player_model#href", "data:image/png;base64,...");
+    shape_values.insert("player_model#href".to_string(), "data:image/png;base64,...".to_string());
 
     // Unset styles will fallback to parent styles
     let mut text_values = HashMap::new();
-    text_values.insert("stat_wins#text", TextSpan {value: "5", fill: None, font_size: None, font_weight: None, font_family: None});
-
+    text_values.insert("stat_wins#text".to_string(), TextPlaceholderValue::String("5".to_string()));
 
     let values = PlaceholderValues {
-        shapes: shapes,
-        images: images,
-        text: text
+        shapes: shape_values,
+        images: image_values,
+        text: text_values
     };
 
     let mut options = usvg::Options::default();
     options.fontdb_mut().load_fonts_dir("./fonts/");
 
-    let renderer = Renderer::new(schema, values, options);
+    let renderer = Renderer::build(schema, values, options);
 
     // Render regular template
     renderer.render_opaque().unwrap();
