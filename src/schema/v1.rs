@@ -6,6 +6,7 @@ use std::path::absolute;
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::v2;
 use super::SchemaError;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -232,6 +233,28 @@ impl Schema {
     pub fn read_schema_asset_file(&self, specified_fp: &str) -> Result<Vec<u8>, std::io::Error> {
         let path = self.absolute_asset_path(specified_fp)?;
         std::fs::read(path)
+    }
+
+    pub fn migrate(self) -> v2::Schema {
+        v2::Schema {
+            schema_file: self.schema_file,
+            schema_version: 2,
+            id: self.id,
+            name: self.name,
+            variables: vec![],
+            layouts: vec![v2::Layout {
+                name: "regular".to_string(),
+                id: 0,
+                scale: 1.0,
+                is_default: true,
+                layout: v2::LayoutContent {
+                    fragments: self.fragments,
+                    content_box: self.content_box,
+                    raster_size: self.raster_size,
+                    static_base: self.static_base,
+                }
+            }]
+        }
     }
 }
 

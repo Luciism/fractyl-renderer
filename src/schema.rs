@@ -1,6 +1,7 @@
 // For future schema versions, a migration system shall be implemented.
 
 mod v1;
+mod v2;
 pub use v1::Fragment;
 
 use serde_json::Value;
@@ -20,11 +21,11 @@ pub enum SchemaError {
     UnknownVersion(u64),
 }
 
-pub type Schema = v1::Schema;
-pub type SchemaTextFragment = v1::TextFragment;
-pub type SchemaImageFragment = v1::ImageFragment;
-pub type SchemaShapeFragment = v1::ShapeFragment;
-pub type SchemaFragmentType = v1::FragmentType;
+pub type Schema = v2::Schema;
+pub type SchemaTextFragment = v2::TextFragment;
+pub type SchemaImageFragment = v2::ImageFragment;
+pub type SchemaShapeFragment = v2::ShapeFragment;
+pub type SchemaFragmentType = v2::FragmentType;
 
 /// Load a schema from a file.
 ///
@@ -46,7 +47,8 @@ pub fn load_schema_from_file(schema_fp: &str) -> Result<Schema, SchemaError> {
         ))?;
 
     match schema_version {
-        1 => Ok(v1::load_schema_v1(schema_fp, json)?),
+        1 => Ok(v1::load_schema_v1(schema_fp, json)?.migrate()),
+        2 => Ok(v2::load_schema_v2(schema_fp, json)?),
         _ => Err(SchemaError::UnknownVersion(schema_version)),
     }
 }
