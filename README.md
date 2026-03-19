@@ -152,9 +152,6 @@ async with ClientSession(timeout=ClientTimeout(total=10)) as session:
 
 Background images are optional and will slightly increase render time. If not provided, the renderer will render the template without a background image.
 
-It is critical that the background image provided is the same size or larger than the template, otherwise the output will have some interesting effects. Background images that exceed the size of the template will be cropped.
-
-
 ## Timings
 
 The render time will vary based on a number of factors such as:

@@ -199,7 +199,6 @@ impl<'a> Renderer<'a> {
                 updated_svg_code = updated_svg_code
                     .replace(&format!("{{variable:{}}}", &caps[1]), &variable.value);
             }
-            println!("{}", &caps[1]);
         }
 
         Ok(updated_svg_code)
@@ -354,23 +353,18 @@ impl<'a> Renderer<'a> {
         .to_rgba8())
     }
 
-    fn resize_background_image_size(background_img: ImgBuf, expected_size: (u32, u32)) -> ImgBuf {
+    fn resize_background_image(background_img: ImgBuf, size: (u32, u32)) -> ImgBuf {
         let bg_width = background_img.width();
         let bg_height = background_img.height();
 
-        if bg_width == expected_size.0 && bg_height == expected_size.1 {
+        if bg_width == size.0 && bg_height == size.1 {
             return background_img;
         }
 
-        let width_ratio = expected_size.0 as f32 / bg_width as f32;
-        let height_ratio = expected_size.1 as f32 / bg_height as f32;
+        let width_ratio = size.0 as f32 / bg_width as f32;
+        let height_ratio = size.1 as f32 / bg_height as f32;
 
-        let ratio =
-            if (1.0 - height_ratio).abs() > (1.0 - width_ratio).abs() && bg_width > bg_height {
-                height_ratio
-            } else {
-                width_ratio
-            };
+        let ratio = width_ratio.max(height_ratio);
 
         let new_height = (bg_height as f32 * ratio) as u32;
         let new_width = (bg_width as f32 * ratio) as u32;
@@ -381,8 +375,8 @@ impl<'a> Renderer<'a> {
             new_height,
             FilterType::CatmullRom,
         );
-        if (resized.width(), resized.height()) != expected_size {
-            return crop(&mut resized, 0, 0, expected_size.0, expected_size.1).to_image();
+        if (resized.width(), resized.height()) != size {
+            return crop(&mut resized, 0, 0, size.0, size.1).to_image();
         }
 
         return resized;
@@ -406,7 +400,7 @@ impl<'a> Renderer<'a> {
         let mask = self.load_rgba_img_buf(&background_base.mask)?;
 
         let mut background_img =
-            Renderer::resize_background_image_size(background_img, mask.dimensions());
+            Renderer::resize_background_image(background_img, mask.dimensions());
         // let mut background_img = background_img;
 
         Renderer::overlay_with_mask(&mut background_img, &translucent_base, &mask);
