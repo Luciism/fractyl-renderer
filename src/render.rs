@@ -1,20 +1,19 @@
-mod cache;
-
 use std::string::FromUtf8Error;
 
 use image::{
     ImageBuffer, ImageError, ImageFormat, ImageReader, Rgba,
-    imageops::{self, overlay},
+    imageops::{FilterType, crop, overlay, resize},
 };
-use log::{error, warn};
+use log::warn;
+use regex::Regex;
 use resvg::{
     tiny_skia::{Pixmap, PixmapMut},
     usvg::{self, Options, Transform},
 };
 
-use crate::schema::{Fragment, Schema, SchemaFragmentType};
+use crate::schema::{Fragment, Schema, SchemaFragmentType, SchemaLayout};
 
-use crate::placeholders::{PlaceholderValues, UsedPlaceholders, PlaceholderValueMap};
+use crate::placeholders::{PlaceholderValueMap, PlaceholderValues, UsedPlaceholders};
 
 #[derive(Debug)]
 /** Rendering errors. */
@@ -27,6 +26,9 @@ pub enum RenderingError {
     PngEncodeError,
     PngDecodeError(ImageError),
     ImageError(ImageError),
+    UnknownLayoutId(u32),
+    RegexError(regex::Error),
+    BackgroundsNotSupported(String),
 }
 
 /// An RGBA image buffer.
@@ -37,6 +39,7 @@ pub type ImgBuf = ImageBuffer<Rgba<u8>, Vec<u8>>;
 pub struct Renderer<'a> {
     /// The schema that determines the layout of the render and all of its elements.
     schema: Schema,
+    layout: SchemaLayout,
     /// Tracks placeholders that have been used.
     used_placeholders: UsedPlaceholders,
     /// The placeholder values to use.
@@ -55,11 +58,13 @@ impl<'a> Renderer<'a> {
     /// - `options` - The usvg options to use.
     pub fn build(
         schema: Schema,
+        layout: SchemaLayout,
         values: PlaceholderValues,
         options: &'a usvg::Options<'a>,
     ) -> Self {
         Renderer {
-            schema,
+            schema: schema,
+            layout: layout,
             used_placeholders: UsedPlaceholders::new(),
             values,
             usvg_options: options,
@@ -71,8 +76,8 @@ impl<'a> Renderer<'a> {
     /// # Arguments
     ///
     /// - `x` - The X position specified in the schema.
-    fn get_x(&self, x: u32) -> i64 {
-        (self.schema.content_box.raster_x + x).into()
+    fn get_x(&self, x: i32) -> i64 {
+        (self.layout.content_box.raster_x as i32 + x).into()
     }
 
     /// Returns the Y position with respect to the content box.
@@ -80,13 +85,13 @@ impl<'a> Renderer<'a> {
     /// # Arguments
     ///
     /// - `y` - The Y position specified in the schema.
-    fn get_y(&self, y: u32) -> i64 {
-        (self.schema.content_box.raster_y + y).into()
+    fn get_y(&self, y: i32) -> i64 {
+        (self.layout.content_box.raster_y as i32 + y).into()
     }
 
     /// Creates a new pixmap for rendering fragments onto.
     fn create_composite_pixmap(&self) -> Result<Pixmap, RenderingError> {
-        let raster_size = &self.schema.raster_size;
+        let raster_size = &self.layout.raster_size;
 
         let pixmap = Pixmap::new(raster_size.width, raster_size.height)
             .ok_or(RenderingError::PixmapAllocationError)?;
@@ -135,7 +140,6 @@ impl<'a> Renderer<'a> {
             .to_rgba8())
     }
 
-
     /// Replaces placeholders with values in SVG code.
     ///
     /// # Arguments
@@ -173,6 +177,32 @@ impl<'a> Renderer<'a> {
         }
 
         svg_code
+    }
+
+    /// Replaces variables with values in SVG code. Must be called after replacing placeholders as
+    /// placeholder values may contain variables.
+    ///
+    /// # Arguments
+    ///
+    /// - `svg_code` - The SVG code to replace variables in.
+    ///
+    /// Returns the SVG code with variables replaced.
+    fn replace_variables(&self, svg_code: String) -> Result<String, RenderingError> {
+        let re = Regex::new(r"\{variable:([a-zA-Z0-9_.]+)\}")
+            .map_err(|e| RenderingError::RegexError(e))?;
+
+        let mut updated_svg_code = svg_code.clone();
+
+        for caps in re.captures_iter(&svg_code) {
+            let variable = self.schema.get_variable(&caps[1]);
+            if let Some(variable) = variable {
+                updated_svg_code = updated_svg_code
+                    .replace(&format!("{{variable:{}}}", &caps[1]), &variable.value);
+            }
+            println!("{}", &caps[1]);
+        }
+
+        Ok(updated_svg_code)
     }
 
     /// Renders all specified fragments onto a pixmap. Fragments can be of any fragment type.
@@ -214,6 +244,8 @@ impl<'a> Renderer<'a> {
                 unused_placeholders,
             );
 
+            svg_code = self.replace_variables(svg_code)?;
+
             let position = fragment.position();
 
             self.render_svg(
@@ -232,15 +264,15 @@ impl<'a> Renderer<'a> {
         let mut fragments_pixmap = self.create_composite_pixmap()?;
         let mut fragments_pixmap_mut = fragments_pixmap.as_mut();
         self.render_fragments(
-            &self.schema.fragments.text.clone(),
+            &self.layout.fragments.text.clone(),
             &mut fragments_pixmap_mut,
         )?;
         self.render_fragments(
-            &self.schema.fragments.images.clone(),
+            &self.layout.fragments.images.clone(),
             &mut fragments_pixmap_mut,
         )?;
         self.render_fragments(
-            &self.schema.fragments.shapes.clone(),
+            &self.layout.fragments.shapes.clone(),
             &mut fragments_pixmap_mut,
         )?;
 
@@ -322,59 +354,60 @@ impl<'a> Renderer<'a> {
         .to_rgba8())
     }
 
+    fn resize_background_image_size(background_img: ImgBuf, expected_size: (u32, u32)) -> ImgBuf {
+        let bg_width = background_img.width();
+        let bg_height = background_img.height();
+
+        if bg_width == expected_size.0 && bg_height == expected_size.1 {
+            return background_img;
+        }
+
+        let width_ratio = expected_size.0 as f32 / bg_width as f32;
+        let height_ratio = expected_size.1 as f32 / bg_height as f32;
+
+        let ratio =
+            if (1.0 - height_ratio).abs() > (1.0 - width_ratio).abs() && bg_width > bg_height {
+                height_ratio
+            } else {
+                width_ratio
+            };
+
+        let new_height = (bg_height as f32 * ratio) as u32;
+        let new_width = (bg_width as f32 * ratio) as u32;
+
+        let mut resized = resize(
+            &background_img,
+            new_width,
+            new_height,
+            FilterType::CatmullRom,
+        );
+        if (resized.width(), resized.height()) != expected_size {
+            return crop(&mut resized, 0, 0, expected_size.0, expected_size.1).to_image();
+        }
+
+        return resized;
+    }
+
     /// Creates a translucent base image by blending the background image with the translucent base image.
     pub fn create_translucent_base(
         &mut self,
-        mut background_img: ImgBuf,
+        background_img: ImgBuf,
     ) -> Result<ImgBuf, RenderingError> {
-        let buf_cache = cache::IMG_BUF_CACHE.lock();
-
-        let (translucent_base, mask) = match buf_cache {
-            Ok(mut buf_cache) => (
-                match buf_cache.filter_for(
-                    Some(self.schema.id.clone()),
-                    Some(self.schema.static_base.translucent.clone()),
-                ) {
-                    Some(translucent_base) => translucent_base,
-                    None => {
-                        let img = self.load_rgba_img_buf(&self.schema.static_base.translucent)?;
-                        buf_cache.add_entry(
-                            &self.schema.id,
-                            &self.schema.static_base.translucent,
-                            img.clone(),
-                        );
-                        img
-                    }
-                },
-                match buf_cache.filter_for(
-                    Some(self.schema.id.clone()),
-                    Some(self.schema.static_base.mask.clone()),
-                ) {
-                    Some(mask) => mask,
-                    None => {
-                        let img = self.load_rgba_img_buf(&self.schema.static_base.mask)?;
-                        buf_cache.add_entry(
-                            &self.schema.id,
-                            &self.schema.static_base.mask,
-                            img.clone(),
-                        );
-                        img
-                    }
-                },
-            ),
-            Err(err) => {
-                error!("Failed to acquire lock on cache: {err}");
-                (
-                    self.load_rgba_img_buf(&self.schema.static_base.translucent)?,
-                    self.load_rgba_img_buf(&self.schema.static_base.mask)?,
-                )
+        let background_base = match &self.layout.static_base.background {
+            Some(background) => background,
+            None => {
+                return Err(RenderingError::BackgroundsNotSupported(
+                    "Background images are not supported by this layout.".to_string(),
+                ));
             }
         };
 
-        let (width, height) = mask.dimensions();
-        if background_img.width() > width || background_img.height() > height {
-            background_img = imageops::crop(&mut background_img, 0, 0, width, height).to_image();
-        }
+        let translucent_base = self.load_rgba_img_buf(&background_base.translucent)?;
+        let mask = self.load_rgba_img_buf(&background_base.mask)?;
+
+        let mut background_img =
+            Renderer::resize_background_image_size(background_img, mask.dimensions());
+        // let mut background_img = background_img;
 
         Renderer::overlay_with_mask(&mut background_img, &translucent_base, &mask);
 
@@ -383,25 +416,8 @@ impl<'a> Renderer<'a> {
 
     /// Renders the layout to the opaque base image.
     pub fn render_opaque(&mut self) -> Result<ImgBuf, RenderingError> {
-        let buf_cache = cache::IMG_BUF_CACHE.lock();
-
-        let opaque_base_src = &self.schema.static_base.opaque;
-        let mut opaque_base = match buf_cache {
-            Ok(mut buf_cache) => match buf_cache
-                .filter_for(Some(self.schema.id.clone()), Some(opaque_base_src.clone()))
-            {
-                Some(opaque_base) => opaque_base,
-                None => {
-                    let img = self.load_rgba_img_buf(opaque_base_src)?;
-                    buf_cache.add_entry(&self.schema.id, opaque_base_src, img.clone());
-                    img
-                }
-            },
-            Err(err) => {
-                error!("Failed to acquire lock on cache: {err}");
-                self.load_rgba_img_buf(opaque_base_src)?
-            }
-        };
+        let opaque_base_src = &self.layout.static_base.default;
+        let mut opaque_base = self.load_rgba_img_buf(opaque_base_src)?;
 
         self.render_to_background(&mut opaque_base)?;
         Ok(opaque_base)

@@ -19,9 +19,11 @@ pub enum SchemaError {
     MalformedSchema(String),
     /// Unknown schema version.
     UnknownVersion(u64),
+    MissingDefaultLayout,
 }
 
 pub type Schema = v2::Schema;
+pub type SchemaLayout = v2::Layout;
 pub type SchemaTextFragment = v2::TextFragment;
 pub type SchemaImageFragment = v2::ImageFragment;
 pub type SchemaShapeFragment = v2::ShapeFragment;

@@ -1,8 +1,4 @@
 /// Schema v1 model
-
-use std::path::PathBuf;
-use std::path::absolute;
-
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -47,14 +43,14 @@ pub struct StaticBase {
 /** The XY position of an element. */
 pub struct Position {
     /** The X position of an element. */
-    pub x: u32,
+    pub x: i32,
     /** The Y position of an element. */
-    pub y: u32,
+    pub y: i32,
 }
 
 impl Position {
     /** Convert to an (x, y) tuple. */
-    pub fn as_tuple(&self) -> (u32, u32) {
+    pub fn as_tuple(&self) -> (i32, i32) {
         (self.x, self.y)
     }
 }
@@ -194,6 +190,7 @@ pub struct Schema {
     pub schema_file: String,
 
     /** The version of the schema. */
+    #[allow(unused)]
     pub schema_version: u64,
     /** The ID of the schema. */
     pub id: String,
@@ -210,31 +207,6 @@ pub struct Schema {
 }
 
 impl Schema {
-    /** Get the absolute path for an asset specified by the schema. */
-    pub fn absolute_asset_path(&self, specified_fp: &str) -> Result<PathBuf, std::io::Error> {
-        let path = absolute(&format!("{}/../{}", self.schema_file, specified_fp))?;
-
-        let mut result = PathBuf::new();
-
-        for component in path.components() {
-            match component {
-                std::path::Component::ParentDir => {
-                    result.pop();
-                }
-                std::path::Component::CurDir => {}
-                other => result.push(other),
-            }
-        }
-
-        Ok(result)
-    }
-
-    /** Read the contents of an asset file specified by the schema. */
-    pub fn read_schema_asset_file(&self, specified_fp: &str) -> Result<Vec<u8>, std::io::Error> {
-        let path = self.absolute_asset_path(specified_fp)?;
-        std::fs::read(path)
-    }
-
     pub fn migrate(self) -> v2::Schema {
         v2::Schema {
             schema_file: self.schema_file,
@@ -243,16 +215,23 @@ impl Schema {
             name: self.name,
             variables: vec![],
             layouts: vec![v2::Layout {
-                name: "regular".to_string(),
                 id: 0,
-                scale: 1.0,
-                is_default: true,
-                layout: v2::LayoutContent {
-                    fragments: self.fragments,
-                    content_box: self.content_box,
-                    raster_size: self.raster_size,
-                    static_base: self.static_base,
-                }
+                scale: v2::LayoutScale {
+                    id: 0,
+                    name: "regular".to_string(),
+                    scale: 1.0,
+                    is_default: true
+                },
+                fragments: self.fragments,
+                content_box: self.content_box,
+                raster_size: self.raster_size,
+                static_base: v2::StaticBase {
+                    default: self.static_base.opaque,
+                    background: Some(v2::BackgroundBase {
+                        translucent: self.static_base.translucent,
+                        mask: self.static_base.mask,
+                    })
+                },
             }]
         }
     }

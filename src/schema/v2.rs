@@ -7,11 +7,52 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::SchemaError;
-pub use super::v1::{ContentBox, RasterSize, StaticBase, Fragment, FragmentType, Position, DynamicFragments, ImageFragment, TextFragment, ShapeFragment, Mode};
+#[allow(unused)]
+pub use super::v1::{ContentBox, RasterSize, Fragment, FragmentType, Position, DynamicFragments, ImageFragment, TextFragment, ShapeFragment, Mode};
 
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct LayoutContent {
+#[serde(rename_all = "camelCase")]
+/** The paths to the translucent and mask base images. */
+pub struct BackgroundBase {
+    /** The path to the translucent base image. */
+    pub translucent: String,
+    /** The path to the mask base image. */
+    pub mask: String
+}
+
+#[derive(Deserialize, Debug, Clone)]
+/** The paths to the static base images. */
+pub struct StaticBase {
+    /** The path to the default base image. */
+    pub default: String,
+    /** The paths for the translucent and mask base images. */
+    pub background: Option<BackgroundBase>
+}
+
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+/** A scale setting for a layout. */
+pub struct LayoutScale {
+    /** The ID of the layout scale. */
+    pub id: u32,
+    /** The name of the layout scale. */
+    pub name: String,
+    /** The scale multiplier for the layout. */
+    pub scale: f32,
+    /** Whether or not this is the default layout scale. */
+    pub is_default: bool,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+/** A layout configuration for the render. */
+pub struct Layout {
+    /** The ID of the layout. */
+    pub id: u32,
+    /** The scale settings for the layout. */
+    pub scale: LayoutScale,
     /** The content box of the schema. This is what fragments are positioned relative to. */
     pub content_box: ContentBox,
     /** The actual size of the raster. */
@@ -20,16 +61,6 @@ pub struct LayoutContent {
     pub static_base: StaticBase,
     /** All of the fragments for the render. */
     pub fragments: DynamicFragments,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct Layout {
-    pub id: u32,
-    pub name: String,
-    #[serde(rename = "camelCase")]
-    pub is_default: bool,
-    pub scale: f32,
-    pub layout: LayoutContent
 }
 
 
@@ -85,6 +116,18 @@ impl Schema {
         let path = self.absolute_asset_path(specified_fp)?;
         std::fs::read(path)
     }
+
+    pub fn default_layout(&self) -> Option<&Layout> {
+        self.layouts.iter().find(|l| l.scale.is_default)
+    }
+
+    pub fn layout_by_scale_name(&self, name: &str) -> Option<&Layout> {
+        self.layouts.iter().find(|l| l.scale.name == name)
+    }
+
+    pub fn get_variable(&self, name: &str) -> Option<Variable> {
+        self.variables.iter().find(|v| v.name == name).cloned()
+    }
 }
 
 /**
@@ -99,6 +142,10 @@ pub fn load_schema_v2(schema_fp: &str, mut schema_json: Value) -> Result<Schema,
     schema_json["schemaFile"] = Value::String(schema_fp.to_string());
     let schema: Schema =
         serde_json::from_value(schema_json).map_err(|e| SchemaError::SchemaDecodeError(e))?;
+
+    if schema.layouts.iter().find(|l| l.scale.is_default).is_none() {
+        return Err(SchemaError::MissingDefaultLayout)
+    }
 
     Ok(schema)
 }

@@ -14,9 +14,7 @@ use resvg::usvg;
 use tokio::net::TcpListener;
 
 use crate::{
-    render::Renderer,
-    placeholders::PlaceholderValues,
-    schema::{self, Schema},
+    placeholders::PlaceholderValues, render::{Renderer, RenderingError}, schema::{self, Schema}
 };
 
 const DEFAULT_EXPORT_DIR: &str = "templates";
@@ -35,6 +33,9 @@ struct CreateRenderData {
 
     /// The placeholder values to use for the render.
     pub placeholder_values: FieldData<String>,
+
+    /// The name of the scale to use.
+    pub scale: Option<FieldData<String>>
 }
 
 #[derive(Debug)]
@@ -140,7 +141,19 @@ impl AxumRenderingServer {
                         log::error!("Failed to acquire options: {e}");
                         StatusCode::INTERNAL_SERVER_ERROR
                     })?;
-                    let mut renderer = Renderer::build(schema, placeholder_values, &options);
+
+                    let layout = match form.scale {
+                        Some(layout_name) => {
+                            schema
+                                .layout_by_scale_name(&layout_name.contents)
+                                .ok_or(StatusCode::BAD_REQUEST)?
+                        }
+                        None => {
+                            schema.default_layout().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+                        }
+                    }.clone();
+
+                    let mut renderer = Renderer::build(schema, layout, placeholder_values, &options);
 
                     let start_time = time::Instant::now();
                     let output = match form.background_image {
@@ -160,8 +173,14 @@ impl AxumRenderingServer {
                             let cursor = Cursor::new(background_image.contents);
                             let image = image::load(cursor, ImageFormat::Png).map_err(|_| StatusCode::BAD_REQUEST)?.to_rgba8();
                             renderer.render_translucent(image).map_err(|e| {
+                                match e {
+                                    RenderingError::BackgroundsNotSupported(_) => StatusCode::BAD_REQUEST,
+                                    _ => {
                                 log::error!("Rendering failed: {e:#?}");
-                                StatusCode::INTERNAL_SERVER_ERROR})?
+                                StatusCode::INTERNAL_SERVER_ERROR
+                                    }
+                                }
+                            })?
                         }
                     };
 
