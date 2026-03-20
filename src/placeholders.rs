@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use serde::Deserialize;
 
@@ -57,6 +57,22 @@ pub enum TextPlaceholderValue {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum FontSize {
+    String(String),
+    Number(f32)
+}
+
+impl Display for FontSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FontSize::String(s) => write!(f, "{s}"),
+            FontSize::Number(n) => write!(f, "{n}")
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
 /// Text placeholder subvalues.
 pub struct TextSpan {
     /// The text value.
@@ -64,7 +80,7 @@ pub struct TextSpan {
     /// Optional: The fill color.
     pub fill: Option<String>,
     /// Optional: The font size.
-    pub font_size: Option<f32>,
+    pub font_size: Option<FontSize>,
     /// Optional: The font weight.
     pub font_weight: Option<u32>,
     /// Optional: The font family.
@@ -85,7 +101,7 @@ impl TextSpan {
             attributes.push(format!("fill=\"{fill}\""));
         }
 
-        if let Some(font_size) = self.font_size {
+        if let Some(font_size) = &self.font_size {
             attributes.push(format!("font-size=\"{font_size}\""));
         }
 
