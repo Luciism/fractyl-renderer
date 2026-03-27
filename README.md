@@ -2,8 +2,6 @@
 
 Fractyl is a system for creating game statistic cards. It uses Figma as a design tool and generates SVG templates that can be filled in with data at render time.
 
-<!-- For more information on Fractyl, see [TODO](https://todo). -->
-
 ## Rendering
 
 The renderer can either be used directly through the `Renderer` struct or by creating a REST API using the `AxumRenderingServer` struct.
