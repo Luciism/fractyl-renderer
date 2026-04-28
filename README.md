@@ -1,6 +1,10 @@
-# Fractyl Renderer
+# Fractyl Renderer - BETA
 
-Fractyl is a system for creating game statistic cards. It uses Figma as a design tool and generates SVG templates that can be filled in with data at render time.
+Fractyl is a pipeline for turning figma designs into SVG templates, exporting, and rendering them with actual data. It uses Figma as a design tool and generates templates that can be filled in with data at render time.
+
+For the figma plugin, see [Luciism/fractyl-figma](https://github.com/Luciism/fractyl-figma).
+
+For video tutorials, see [the YouTube playlist](https://youtube.com/playlist?list=PLYPb34B-Nxqd5w8hc_918wX85iW4jU81t&si=tbhw7fr90tkI4Wmt) (may be out of date).
 
 ## Rendering
 
