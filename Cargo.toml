@@ -9,7 +9,7 @@ license = "GPL-2.0-or-later WITH Bison-exception-2.2"
 keywords = ["rendering", "svg", "figma", "fractyl", "templating"]
 categories = ["graphics", "template-engine"]
 
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 
 [dependencies]

@@ -5,7 +5,7 @@ use axum::{
     body::Body,
     extract::DefaultBodyLimit,
     http::{self, Response, StatusCode},
-    routing::post,
+    routing::{post, get},
 };
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
 use image::ImageFormat;
@@ -71,9 +71,9 @@ impl AxumRenderingServer {
         let mut options = USVG_OPTIONS.lock().unwrap();
         options.fontdb_mut().load_fonts_dir("./fonts/");
 
-        AxumRenderingServer {
-            app_router: Router::new(),
-        }
+        let app_router = Router::new()
+            .route("/ready", get(|| async { StatusCode::OK }));
+        AxumRenderingServer { app_router }
     }
 
     /// Starts the AxumRenderingServer.
